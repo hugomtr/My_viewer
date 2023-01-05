@@ -67,3 +67,18 @@ render_helmet() {
   dist/gltf-viewer viewer .local/gltf-sample-models/2.0/DamagedHelmet/glTF/DamagedHelmet.gltf \
     --output output-images/helmet.png
 }
+
+render_all() {
+  cmake_prepare
+  cmake_install
+  ROOT=$(pwd)
+  OUTDIR=`date +%Y-%m-%d-%H-%M-%S`
+  mkdir -p $ROOT/.local/output-images/$OUTDIR
+  pushd .local/gltf-sample-models/2.0/
+  for f in */; do
+    f=$(echo "$f" | sed 's:/*$::')
+    echo $ROOT/.local/output-images/$OUTDIR/$f.png
+    $ROOT/dist/gltf-viewer viewer $f/glTF/$f.gltf --output $ROOT/.local/output-images/$OUTDIR/$f.png
+  done
+  popd
+}
