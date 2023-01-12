@@ -2,4 +2,10 @@
   "C_Cpp.default.configurationProvider": "vector-of-bool.cmake-tools",
   "editor.formatOnSave": true,
   "cmake.buildDirectory": "${workspaceFolder}/build",
+  "files.associations": {
+    "array": "cpp",
+    "string": "cpp",
+    "string_view": "cpp",
+    "ranges": "cpp"
+  },
 }

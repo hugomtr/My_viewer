@@ -58,11 +58,13 @@ int ViewerApplication::run()
     std::cout << "Failed to load model" << std::endl;
   }
 
+  std::vector<GLuint> bufferObjects = createBufferObjects(model);
   // TODO Creation of Buffer Objects
 
   // TODO Creation of Vertex Array Objects
 
   // Setup OpenGL state for rendering
+
   glEnable(GL_DEPTH_TEST);
   glslProgram.use();
 
@@ -208,4 +210,18 @@ bool ViewerApplication::loadGltfFile(tinygltf::Model &model)
     return 0;
   }
   return 1;
+}
+
+std::vector<GLuint> ViewerApplication::createBufferObjects(
+    const tinygltf::Model &model)
+{
+  std::vector<GLuint> bufferObjects(model.buffers.size(), 0);
+  glGenBuffers(model.buffers.size(), bufferObjects.data());
+  for (size_t i = 0; i < model.buffers.size(); ++i) {
+    glBindBuffer(GL_ARRAY_BUFFER, bufferObjects[i]);
+    glBufferStorage(GL_ARRAY_BUFFER, model.buffers[i].data.size(),
+        model.buffers[i].data.data(), 0);
+  }
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  return bufferObjects;
 }
