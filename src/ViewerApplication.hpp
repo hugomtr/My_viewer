@@ -7,6 +7,12 @@
 
 #include <tiny_gltf.h>
 
+struct VaoRange
+{
+  GLsizei begin; // Index of first element in vertexArrayObjects
+  GLsizei count; // Number of elements in range
+};
+
 class ViewerApplication
 {
 public:
@@ -18,15 +24,11 @@ public:
   int run();
   bool loadGltfFile(tinygltf::Model &model);
   std::vector<GLuint> createBufferObjects(const tinygltf::Model &model);
+  std::vector<GLuint> createVertexArrayObjects(const tinygltf::Model &model,
+      const std::vector<GLuint> &bufferObjects,
+      std::vector<VaoRange> &meshToVertexArrays);
 
 private:
-  // A range of indices in a vector containing Vertex Array Objects
-  struct VaoRange
-  {
-    GLsizei begin; // Index of first element in vertexArrayObjects
-    GLsizei count; // Number of elements in range
-  };
-
   GLsizei m_nWindowWidth = 1280;
   GLsizei m_nWindowHeight = 720;
 
