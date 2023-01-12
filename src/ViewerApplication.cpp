@@ -11,7 +11,6 @@
 #include "utils/cameras.hpp"
 
 #include <stb_image_write.h>
-#include <tiny_gltf.h>
 
 void keyCallback(
     GLFWwindow *window, int key, int scancode, int action, int mods)
@@ -24,9 +23,8 @@ void keyCallback(
 int ViewerApplication::run()
 {
   // Loader shaders
-  const auto glslProgram =
-      compileProgram({m_ShadersRootPath / m_vertexShader,
-          m_ShadersRootPath / m_fragmentShader});
+  const auto glslProgram = compileProgram({m_ShadersRootPath / m_vertexShader,
+      m_ShadersRootPath / m_fragmentShader});
 
   const auto modelViewProjMatrixLocation =
       glGetUniformLocation(glslProgram.glId(), "uModelViewProjMatrix");
@@ -56,6 +54,9 @@ int ViewerApplication::run()
 
   tinygltf::Model model;
   // TODO Loading the glTF file
+  if (loadGltfFile(model) == 0) {
+    std::cout << "Failed to load model" << std::endl;
+  }
 
   // TODO Creation of Buffer Objects
 
@@ -181,4 +182,30 @@ ViewerApplication::ViewerApplication(const fs::path &appPath, uint32_t width,
   glfwSetKeyCallback(m_GLFWHandle.window(), keyCallback);
 
   printGLVersion();
+}
+
+bool ViewerApplication::loadGltfFile(tinygltf::Model &model)
+{
+  tinygltf::TinyGLTF loader;
+  std::string err;
+  std::string warn;
+
+  bool ret =
+      loader.LoadASCIIFromFile(&model, &err, &warn, m_gltfFilePath.string());
+
+  if (!warn.empty()) {
+    printf("Warn: %s\n", warn.c_str());
+    return 0;
+  }
+
+  if (!err.empty()) {
+    printf("Err: %s\n", err.c_str());
+    return 0;
+  }
+
+  if (!ret) {
+    printf("Failed to parse glTF\n");
+    return 0;
+  }
+  return 1;
 }
