@@ -80,7 +80,9 @@ int ViewerApplication::run()
     // We use a std::function because a simple lambda cannot be recursive
     const std::function<void(int, const glm::mat4 &)> drawNode =
         [&](int nodeIdx, const glm::mat4 &parentMatrix) {
-          // TODO The drawNode function
+          for (int &nodeIdx : model.scenes[model.defaultScene].nodes) {
+            drawNode(nodeIdx, glm::mat4(1));
+          }
         };
 
     // Draw the scene referenced by gltf file
