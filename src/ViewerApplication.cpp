@@ -9,8 +9,10 @@
 #include <glm/gtx/io.hpp>
 
 #include "utils/cameras.hpp"
+#include "utils/gltf.hpp"
 
 #include <stb_image_write.h>
+#include <tiny_gltf.h>
 
 void keyCallback(
     GLFWwindow *window, int key, int scancode, int action, int mods)
@@ -53,19 +55,17 @@ int ViewerApplication::run()
   }
 
   tinygltf::Model model;
-  // TODO Loading the glTF file
-  if (loadGltfFile(model) == 0) {
-    std::cout << "Failed to load model" << std::endl;
+  if (!loadGltfFile(model)) {
+    return -1;
   }
 
-  std::vector<GLuint> bufferObjects = createBufferObjects(model);
+  const auto bufferObjects = createBufferObjects(model);
 
   std::vector<VaoRange> meshToVertexArrays;
   const auto vertexArrayObjects =
       createVertexArrayObjects(model, bufferObjects, meshToVertexArrays);
 
   // Setup OpenGL state for rendering
-
   glEnable(GL_DEPTH_TEST);
   glslProgram.use();
 
@@ -80,14 +80,62 @@ int ViewerApplication::run()
     // We use a std::function because a simple lambda cannot be recursive
     const std::function<void(int, const glm::mat4 &)> drawNode =
         [&](int nodeIdx, const glm::mat4 &parentMatrix) {
-          for (int &nodeIdx : model.scenes[model.defaultScene].nodes) {
-            drawNode(nodeIdx, glm::mat4(1));
+          const auto &node = model.nodes[nodeIdx];
+          const glm::mat4 modelMatrix =
+              getLocalToWorldMatrix(node, parentMatrix);
+
+          // If the node references a mesh (a node can also reference a
+          // camera, or a light)
+          if (node.mesh >= 0) {
+            const auto mvMatrix =
+                viewMatrix * modelMatrix; // Also called localToCamera matrix
+            const auto mvpMatrix =
+                projMatrix * mvMatrix; // Also called localToScreen matrix
+            // Normal matrix is necessary to maintain normal vectors
+            // orthogonal to tangent vectors
+            // https://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
+            const auto normalMatrix = glm::transpose(glm::inverse(mvMatrix));
+
+            glUniformMatrix4fv(modelViewProjMatrixLocation, 1, GL_FALSE,
+                glm::value_ptr(mvpMatrix));
+            glUniformMatrix4fv(
+                modelViewMatrixLocation, 1, GL_FALSE, glm::value_ptr(mvMatrix));
+            glUniformMatrix4fv(normalMatrixLocation, 1, GL_FALSE,
+                glm::value_ptr(normalMatrix));
+
+            const auto &mesh = model.meshes[node.mesh];
+            const auto &vaoRange = meshToVertexArrays[node.mesh];
+            for (size_t pIdx = 0; pIdx < mesh.primitives.size(); ++pIdx) {
+              const auto vao = vertexArrayObjects[vaoRange.begin + pIdx];
+              const auto &primitive = mesh.primitives[pIdx];
+              glBindVertexArray(vao);
+              if (primitive.indices >= 0) {
+                const auto &accessor = model.accessors[primitive.indices];
+                const auto &bufferView = model.bufferViews[accessor.bufferView];
+                const auto byteOffset =
+                    accessor.byteOffset + bufferView.byteOffset;
+                glDrawElements(primitive.mode, GLsizei(accessor.count),
+                    accessor.componentType, (const GLvoid *)byteOffset);
+              } else {
+                // Take first accessor to get the count
+                const auto accessorIdx = (*begin(primitive.attributes)).second;
+                const auto &accessor = model.accessors[accessorIdx];
+                glDrawArrays(primitive.mode, 0, GLsizei(accessor.count));
+              }
+            }
+          }
+
+          // Draw children
+          for (const auto childNodeIdx : node.children) {
+            drawNode(childNodeIdx, modelMatrix);
           }
         };
 
     // Draw the scene referenced by gltf file
     if (model.defaultScene >= 0) {
-      // TODO Draw all nodes
+      for (const auto nodeIdx : model.scenes[model.defaultScene].nodes) {
+        drawNode(nodeIdx, glm::mat4(1));
+      }
     }
   };
 
@@ -151,46 +199,10 @@ int ViewerApplication::run()
   return 0;
 }
 
-ViewerApplication::ViewerApplication(const fs::path &appPath, uint32_t width,
-    uint32_t height, const fs::path &gltfFile,
-    const std::vector<float> &lookatArgs, const std::string &vertexShader,
-    const std::string &fragmentShader, const fs::path &output) :
-    m_nWindowWidth(width),
-    m_nWindowHeight(height),
-    m_AppPath{appPath},
-    m_AppName{m_AppPath.stem().string()},
-    m_ImGuiIniFilename{m_AppName + ".imgui.ini"},
-    m_ShadersRootPath{m_AppPath.parent_path() / "shaders"},
-    m_gltfFilePath{gltfFile},
-    m_OutputPath{output}
-{
-  if (!lookatArgs.empty()) {
-    m_hasUserCamera = true;
-    m_userCamera =
-        Camera{glm::vec3(lookatArgs[0], lookatArgs[1], lookatArgs[2]),
-            glm::vec3(lookatArgs[3], lookatArgs[4], lookatArgs[5]),
-            glm::vec3(lookatArgs[6], lookatArgs[7], lookatArgs[8])};
-  }
-
-  if (!vertexShader.empty()) {
-    m_vertexShader = vertexShader;
-  }
-
-  if (!fragmentShader.empty()) {
-    m_fragmentShader = fragmentShader;
-  }
-
-  ImGui::GetIO().IniFilename =
-      m_ImGuiIniFilename.c_str(); // At exit, ImGUI will store its windows
-                                  // positions in this file
-
-  glfwSetKeyCallback(m_GLFWHandle.window(), keyCallback);
-
-  printGLVersion();
-}
-
 bool ViewerApplication::loadGltfFile(tinygltf::Model &model)
 {
+  std::clog << "Loading file " << m_gltfFilePath << std::endl;
+
   tinygltf::TinyGLTF loader;
   std::string err;
   std::string warn;
@@ -199,33 +211,34 @@ bool ViewerApplication::loadGltfFile(tinygltf::Model &model)
       loader.LoadASCIIFromFile(&model, &err, &warn, m_gltfFilePath.string());
 
   if (!warn.empty()) {
-    printf("Warn: %s\n", warn.c_str());
-    return 0;
+    std::cerr << warn << std::endl;
   }
 
   if (!err.empty()) {
-    printf("Err: %s\n", err.c_str());
-    return 0;
+    std::cerr << err << std::endl;
   }
 
   if (!ret) {
-    printf("Failed to parse glTF\n");
-    return 0;
+    std::cerr << "Failed to parse glTF file" << std::endl;
+    return false;
   }
-  return 1;
+
+  return true;
 }
 
 std::vector<GLuint> ViewerApplication::createBufferObjects(
     const tinygltf::Model &model)
 {
   std::vector<GLuint> bufferObjects(model.buffers.size(), 0);
-  glGenBuffers(model.buffers.size(), bufferObjects.data());
+
+  glGenBuffers(GLsizei(model.buffers.size()), bufferObjects.data());
   for (size_t i = 0; i < model.buffers.size(); ++i) {
     glBindBuffer(GL_ARRAY_BUFFER, bufferObjects[i]);
     glBufferStorage(GL_ARRAY_BUFFER, model.buffers[i].data.size(),
         model.buffers[i].data.data(), 0);
   }
   glBindBuffer(GL_ARRAY_BUFFER, 0);
+
   return bufferObjects;
 }
 
@@ -286,8 +299,6 @@ std::vector<GLuint> ViewerApplication::createVertexArrayObjects(
               (const GLvoid *)byteOffset);
         }
       }
-      // todo Refactor to remove code duplication (loop over "POSITION",
-      // "NORMAL" and their corresponding VERTEX_ATTRIB_*)
       { // NORMAL attribute
         const auto iterator = primitive.attributes.find("NORMAL");
         if (iterator != end(primitive.attributes)) {
@@ -342,4 +353,42 @@ std::vector<GLuint> ViewerApplication::createVertexArrayObjects(
   std::clog << "Number of VAOs: " << vertexArrayObjects.size() << std::endl;
 
   return vertexArrayObjects;
+}
+
+ViewerApplication::ViewerApplication(const fs::path &appPath, uint32_t width,
+    uint32_t height, const fs::path &gltfFile,
+    const std::vector<float> &lookatArgs, const std::string &vertexShader,
+    const std::string &fragmentShader, const fs::path &output) :
+    m_nWindowWidth(width),
+    m_nWindowHeight(height),
+    m_AppPath{appPath},
+    m_AppName{m_AppPath.stem().string()},
+    m_ImGuiIniFilename{m_AppName + ".imgui.ini"},
+    m_ShadersRootPath{m_AppPath.parent_path() / "shaders"},
+    m_gltfFilePath{gltfFile},
+    m_OutputPath{output}
+{
+  if (!lookatArgs.empty()) {
+    m_hasUserCamera = true;
+    m_userCamera =
+        Camera{glm::vec3(lookatArgs[0], lookatArgs[1], lookatArgs[2]),
+            glm::vec3(lookatArgs[3], lookatArgs[4], lookatArgs[5]),
+            glm::vec3(lookatArgs[6], lookatArgs[7], lookatArgs[8])};
+  }
+
+  if (!vertexShader.empty()) {
+    m_vertexShader = vertexShader;
+  }
+
+  if (!fragmentShader.empty()) {
+    m_fragmentShader = fragmentShader;
+  }
+
+  ImGui::GetIO().IniFilename =
+      m_ImGuiIniFilename.c_str(); // At exit, ImGUI will store its windows
+                                  // positions in this file
+
+  glfwSetKeyCallback(m_GLFWHandle.window(), keyCallback);
+
+  printGLVersion();
 }
