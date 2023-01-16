@@ -25,21 +25,20 @@ ViewFrame fromViewToWorldMatrix(const mat4 &viewToWorldMatrix)
   return ViewFrame{-vec3(viewToWorldMatrix[0]), vec3(viewToWorldMatrix[1]),
       -vec3(viewToWorldMatrix[2]), vec3(viewToWorldMatrix[3])};
 }
-
 bool FirstPersonCameraController::update(float elapsedTime)
 {
   if (glfwGetMouseButton(m_pWindow, GLFW_MOUSE_BUTTON_MIDDLE) &&
-      !m_MiddleButtonPressed) {
-    m_MiddleButtonPressed = true;
+      !m_LeftButtonPressed) {
+    m_LeftButtonPressed = true;
     glfwGetCursorPos(
         m_pWindow, &m_LastCursorPosition.x, &m_LastCursorPosition.y);
   } else if (!glfwGetMouseButton(m_pWindow, GLFW_MOUSE_BUTTON_MIDDLE) &&
-             m_MiddleButtonPressed) {
-    m_MiddleButtonPressed = false;
+             m_LeftButtonPressed) {
+    m_LeftButtonPressed = false;
   }
 
   const auto cursorDelta = ([&]() {
-    if (m_MiddleButtonPressed) {
+    if (m_LeftButtonPressed) {
       dvec2 cursorPosition;
       glfwGetCursorPos(m_pWindow, &cursorPosition.x, &cursorPosition.y);
       const auto delta = cursorPosition - m_LastCursorPosition;
@@ -99,6 +98,12 @@ bool FirstPersonCameraController::update(float elapsedTime)
   if (!hasMoved) {
     return false;
   }
+
+  m_camera.moveLocal(truckLeft, pedestalUp, dollyIn);
+  m_camera.rotateLocal(rollRightAngle, tiltDownAngle, 0.f);
+  m_camera.rotateWorld(panLeftAngle, m_worldUpAxis);
+
+  return true;
 }
 
 bool TrackballCameraController::update(float elapsedTime)
@@ -166,12 +171,12 @@ bool TrackballCameraController::update(float elapsedTime)
 
   const auto depthAxis = m_camera.eye() - m_camera.center();
 
-  glm::mat4 rotationLongitudeMatrix =
+  glm::mat4 rotationVerticalMatrix =
       glm::rotate(glm::mat4(1.0f), yAngle, m_camera.left());
-  glm::mat4 rotationLatitudeMatrix =
+  glm::mat4 rotationHorizontalMatrix =
       glm::rotate(glm::mat4(1.0f), xAngle, m_worldUpAxis);
 
-  glm::vec4 result = rotationLatitudeMatrix * rotationLongitudeMatrix *
+  glm::vec4 result = rotationVerticalMatrix * rotationHorizontalMatrix *
                      glm::vec4(depthAxis, 0.0f);
 
   glm::vec3 finalDepthAxis(result[0], result[1], result[2]);
