@@ -182,7 +182,7 @@ public:
 
   void setCamera(const Camera &camera) { m_camera = camera; }
 
-private:
+protected:
   GLFWwindow *m_pWindow = nullptr;
   float m_fSpeed = 0.f;
   glm::vec3 m_worldUpAxis;

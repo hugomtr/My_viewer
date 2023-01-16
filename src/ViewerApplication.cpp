@@ -36,28 +36,34 @@ int ViewerApplication::run()
   const auto normalMatrixLocation =
       glGetUniformLocation(glslProgram.glId(), "uNormalMatrix");
 
+  tinygltf::Model model;
+  if (!loadGltfFile(model)) {
+    return -1;
+  }
+
+  glm::vec3 bboxMax, bboxMin, bboxCenter, bboxDiag;
+  computeSceneBounds(model, bboxMin, bboxMax);
+  bboxCenter = 0.5f * (bboxMax + bboxMin);
+  bboxDiag = bboxMax - bboxMin;
+
   // Build projection matrix
-  auto maxDistance = 500.f; // TODO use scene bounds instead to compute this
+  auto maxDistance = glm::length(bboxDiag);
   maxDistance = maxDistance > 0.f ? maxDistance : 100.f;
   const auto projMatrix =
       glm::perspective(70.f, float(m_nWindowWidth) / m_nWindowHeight,
           0.001f * maxDistance, 1.5f * maxDistance);
 
-  // TODO Implement a new CameraController model and use it instead. Propose the
   // choice from the GUI
-  FirstPersonCameraController cameraController{
+  TrackballCameraController cameraController{
       m_GLFWHandle.window(), 0.5f * maxDistance};
   if (m_hasUserCamera) {
     cameraController.setCamera(m_userCamera);
   } else {
-    // TODO Use scene bounds to compute a better default camera
-    cameraController.setCamera(
-        Camera{glm::vec3(0, 0, 0), glm::vec3(0, 0, -1), glm::vec3(0, 1, 0)});
-  }
-
-  tinygltf::Model model;
-  if (!loadGltfFile(model)) {
-    return -1;
+    glm::vec3 eye =
+        (bboxMax.z == bboxMin.z)
+            ? bboxCenter + 2.0f * glm::cross(bboxDiag, glm::vec3(0, 0, 1))
+            : (bboxCenter + bboxDiag);
+    cameraController.setCamera(Camera{eye, bboxCenter, glm::vec3(0, 0, 1)});
   }
 
   const auto bufferObjects = createBufferObjects(model);

@@ -99,12 +99,83 @@ bool FirstPersonCameraController::update(float elapsedTime)
   if (!hasMoved) {
     return false;
   }
-
-  m_camera.moveLocal(truckLeft, pedestalUp, dollyIn);
-  m_camera.rotateLocal(rollRightAngle, tiltDownAngle, 0.f);
-  m_camera.rotateWorld(panLeftAngle, m_worldUpAxis);
-
-  return true;
 }
 
-bool TrackballCameraController::update(float elapsedTime) { return false; }
+bool TrackballCameraController::update(float elapsedTime)
+{
+  if (glfwGetMouseButton(m_pWindow, GLFW_MOUSE_BUTTON_MIDDLE) &&
+      !m_MiddleButtonPressed) {
+    m_MiddleButtonPressed = true;
+    glfwGetCursorPos(
+        m_pWindow, &m_LastCursorPosition.x, &m_LastCursorPosition.y);
+  } else if (!glfwGetMouseButton(m_pWindow, GLFW_MOUSE_BUTTON_MIDDLE) &&
+             m_MiddleButtonPressed) {
+    m_MiddleButtonPressed = false;
+  }
+
+  const auto cursorDelta = ([&]() {
+    if (m_MiddleButtonPressed) {
+      dvec2 cursorPosition;
+      glfwGetCursorPos(m_pWindow, &cursorPosition.x, &cursorPosition.y);
+      const auto delta = cursorPosition - m_LastCursorPosition;
+      m_LastCursorPosition = cursorPosition;
+      return delta;
+    }
+    return dvec2(0);
+  })();
+
+  // If shift pressed = Pan the camera
+  if (glfwGetKey(m_pWindow, GLFW_KEY_LEFT_SHIFT)) {
+    float xAngle = 0.01f * float(cursorDelta.x);
+    float yAngle = 0.01f * float(cursorDelta.y);
+    bool hasMoved = xAngle || yAngle;
+
+    if (!hasMoved) {
+      return false;
+    }
+
+    m_camera.moveLocal(xAngle, yAngle, 0.0f);
+    return true;
+  }
+
+  // Contro pressed = Zoom/ Unzomm the camera
+  if (glfwGetKey(m_pWindow, GLFW_KEY_LEFT_CONTROL)) {
+
+    float yLatitude = 0.01f * float(cursorDelta.y);
+
+    if (!yLatitude) {
+      return false;
+    }
+
+    const auto viewVector = m_camera.center() - m_camera.eye();
+    const glm::vec3 new_eye =
+        m_camera.eye() + glm::normalize(viewVector) * yLatitude;
+
+    m_camera = Camera(new_eye, m_camera.center(), m_worldUpAxis);
+    return true;
+  }
+
+  float xAngle = 0.01f * float(cursorDelta.x);
+  float yAngle = 0.01f * float(cursorDelta.y);
+
+  bool hasMoved = xAngle || yAngle;
+
+  if (!hasMoved) {
+    return false;
+  }
+
+  const auto depthAxis = m_camera.eye() - m_camera.center();
+
+  glm::mat4 rotationLongitudeMatrix =
+      glm::rotate(glm::mat4(1.0f), yAngle, m_camera.left());
+  glm::mat4 rotationLatitudeMatrix =
+      glm::rotate(glm::mat4(1.0f), xAngle, m_worldUpAxis);
+
+  glm::vec4 result = rotationLatitudeMatrix * rotationLongitudeMatrix *
+                     glm::vec4(depthAxis, 0.0f);
+
+  glm::vec3 finalDepthAxis(result[0], result[1], result[2]);
+  const auto newEye = m_camera.center() + finalDepthAxis;
+  m_camera = Camera(newEye, m_camera.center(), m_worldUpAxis);
+  return true;
+}
