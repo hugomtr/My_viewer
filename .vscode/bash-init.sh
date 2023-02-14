@@ -52,6 +52,24 @@ view_helmet() {
   dist/gltf-viewer viewer gltf-sample-models/2.0/DamagedHelmet/glTF/DamagedHelmet.gltf
 }
 
+view_flight_helmet() {
+  cmake_prepare
+  cmake_install
+  dist/gltf-viewer viewer gltf-sample-models/2.0/FlightHelmet/glTF/FlightHelmet.gltf
+}
+
+view_lantern() {
+  cmake_prepare
+  cmake_install
+  dist/gltf-viewer viewer gltf-sample-models/2.0/Lantern/glTF/Lantern.gltf
+}
+
+view_skeleton() {
+  cmake_prepare
+  cmake_install
+  dist/gltf-viewer gltf-sample-models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf
+}
+
 render_sponza() {
   cmake_prepare
   cmake_install
