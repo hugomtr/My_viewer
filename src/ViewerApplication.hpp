@@ -7,6 +7,25 @@
 
 #include <tiny_gltf.h>
 
+struct Locations
+{
+  int uModelViewProjMatrix;
+  int uModelViewMatrix;
+  int uNormalMatrix;
+  int uLightDirection;
+  int uLightIntensity;
+  int uBaseColorTexture;
+  int uBaseColorFactor;
+  int uMetallicRoughnessTexture;
+  int uMetallicFactor;
+  int uRoughnessFactor;
+  int uEmissiveTexture;
+  int uEmissiveFactor;
+  int uOcclusionTexture;
+  int uOcclusionStrength;
+  int uApplyOcclusion;
+};
+
 class ViewerApplication
 {
 public:
@@ -31,6 +50,11 @@ private:
 
   std::vector<GLuint> createBufferObjects(const tinygltf::Model &model) const;
 
+  void loadLocations(GLuint, Locations &);
+  int createGBuffer();
+  void RenderGbuffer();
+  void renderQuad();
+
   std::vector<GLuint> createVertexArrayObjects(const tinygltf::Model &model,
       const std::vector<GLuint> &bufferObjects,
       std::vector<VaoRange> &meshToVertexArrays) const;
@@ -45,6 +69,10 @@ private:
   fs::path m_gltfFilePath;
   std::string m_vertexShader = "forward.vs.glsl";
   std::string m_fragmentShader = "pbr_directional_light.fs.glsl";
+  std::string m_vertexShaderGBuffer = "deferred_gbuffer.vs.glsl";
+  std::string m_fragmentShaderGBuffer = "deferred_gbuffer.fs.glsl";
+  std::string m_vertexShaderDShading = "deferred_shading.vs.glsl";
+  std::string m_fragmentShaderDShading = "deferred_shading.fs.glsl";
 
   bool m_hasUserCamera = false;
   Camera m_userCamera;
@@ -68,4 +96,6 @@ private:
     the creation of a GLFW windows and thus a GL context which must exists
     before most of OpenGL function calls.
   */
+  unsigned int quadVAO = 0;
+  unsigned int quadVBO;
 };

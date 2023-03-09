@@ -15,13 +15,14 @@
 #include <stb_image_write.h>
 #include <tiny_gltf.h>
 
-// TO DO
-// G buffer
-
-// -WS position
-// -3D normal vector
-// -lightDirection
-// -lightIntensity
+unsigned int gbuffer;
+unsigned int gPosition;
+unsigned int gNormal;
+unsigned int gDiffuse;
+unsigned int gMetallic;
+unsigned int gEmissive;
+unsigned int gOcclusion;
+unsigned int gFactor;
 
 void keyCallback(
     GLFWwindow *window, int key, int scancode, int action, int mods)
@@ -33,45 +34,34 @@ void keyCallback(
 
 int ViewerApplication::run()
 {
-  // Loader shaders
-  const auto glslProgram = compileProgram({m_ShadersRootPath / m_vertexShader,
-      m_ShadersRootPath / m_fragmentShader});
+  // // Loader shaders
+  // // Forward rendering
+  // const auto glslProgram = compileProgram({m_ShadersRootPath /
+  // m_vertexShader,
+  //     m_ShadersRootPath / m_fragmentShader});
 
-  const auto modelViewProjMatrixLocation =
-      glGetUniformLocation(glslProgram.glId(), "uModelViewProjMatrix");
-  const auto modelViewMatrixLocation =
-      glGetUniformLocation(glslProgram.glId(), "uModelViewMatrix");
-  const auto normalMatrixLocation =
-      glGetUniformLocation(glslProgram.glId(), "uNormalMatrix");
+  // Locations location;
+  // loadLocations(glslProgram.glId(), location);
 
-  const auto uLightDirectionLocation =
-      glGetUniformLocation(glslProgram.glId(), "uLightDirection");
-  const auto uLightIntensity =
-      glGetUniformLocation(glslProgram.glId(), "uLightIntensity");
+  // // -------------------
 
-  const auto uBaseColorTexture =
-      glGetUniformLocation(glslProgram.glId(), "uBaseColorTexture");
-  const auto uBaseColorFactor =
-      glGetUniformLocation(glslProgram.glId(), "uBaseColorFactor");
+  // Deferred Rendering
+  // 2 Shaders for deferred rendering method
+  const auto glslProgramdGeometry =
+      compileProgram({m_ShadersRootPath / m_vertexShaderGBuffer,
+          m_ShadersRootPath / m_fragmentShaderGBuffer});
 
-  const auto uMetallicRoughnessTexture =
-      glGetUniformLocation(glslProgram.glId(), "uMetallicRoughnessTexture");
-  const auto uMetallicFactor =
-      glGetUniformLocation(glslProgram.glId(), "uMetallicFactor");
-  const auto uRoughnessFactor =
-      glGetUniformLocation(glslProgram.glId(), "uRoughnessFactor");
+  const auto glslProgramdShading =
+      compileProgram({m_ShadersRootPath / m_vertexShaderDShading,
+          m_ShadersRootPath / m_fragmentShaderDShading});
 
-  const auto uEmissiveTexture =
-      glGetUniformLocation(glslProgram.glId(), "uEmissiveTexture");
-  const auto uEmissiveFactor =
-      glGetUniformLocation(glslProgram.glId(), "uEmissiveFactor");
+  Locations locationgbuffer;
+  loadLocations(glslProgramdGeometry.glId(), locationgbuffer);
 
-  const auto uOcclusionTexture =
-      glGetUniformLocation(glslProgram.glId(), "uOcclusionTexture");
-  const auto uOcclusionStrength =
-      glGetUniformLocation(glslProgram.glId(), "uOcclusionStrength");
-  const auto uApplyOcclusion =
-      glGetUniformLocation(glslProgram.glId(), "uApplyOcclusion");
+  Locations locationDShading;
+  loadLocations(glslProgramdShading.glId(), locationDShading);
+
+  // --------------------
 
   tinygltf::Model model;
   if (!loadGltfFile(model)) {
@@ -129,22 +119,23 @@ int ViewerApplication::run()
   const auto vertexArrayObjects =
       createVertexArrayObjects(model, bufferObjects, meshToVertexArrays);
 
+  createGBuffer();
   // Setup OpenGL state for rendering
   glEnable(GL_DEPTH_TEST);
-  glslProgram.use();
 
-  const auto bindMaterial = [&](const auto materialIndex) {
+  const auto bindMaterial = [&](const auto materialIndex,
+                                const Locations &location) {
     if (materialIndex >= 0) {
       const auto &material = model.materials[materialIndex];
       const auto &pbrMetallicRoughness = material.pbrMetallicRoughness;
-      if (uBaseColorFactor >= 0) {
-        glUniform4f(uBaseColorFactor,
+      if (location.uBaseColorFactor >= 0) {
+        glUniform4f(location.uBaseColorFactor,
             (float)pbrMetallicRoughness.baseColorFactor[0],
             (float)pbrMetallicRoughness.baseColorFactor[1],
             (float)pbrMetallicRoughness.baseColorFactor[2],
             (float)pbrMetallicRoughness.baseColorFactor[3]);
       }
-      if (uBaseColorTexture >= 0) {
+      if (location.uBaseColorTexture >= 0) {
         auto textureObject = whiteTexture;
         if (pbrMetallicRoughness.baseColorTexture.index >= 0) {
           const auto &texture =
@@ -156,17 +147,17 @@ int ViewerApplication::run()
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textureObject);
-        glUniform1i(uBaseColorTexture, 0);
+        glUniform1i(location.uBaseColorTexture, 0);
       }
-      if (uMetallicFactor >= 0) {
-        glUniform1f(
-            uMetallicFactor, (float)pbrMetallicRoughness.metallicFactor);
+      if (location.uMetallicFactor >= 0) {
+        glUniform1f(location.uMetallicFactor,
+            (float)pbrMetallicRoughness.metallicFactor);
       }
-      if (uRoughnessFactor >= 0) {
-        glUniform1f(
-            uRoughnessFactor, (float)pbrMetallicRoughness.roughnessFactor);
+      if (location.uRoughnessFactor >= 0) {
+        glUniform1f(location.uRoughnessFactor,
+            (float)pbrMetallicRoughness.roughnessFactor);
       }
-      if (uMetallicRoughnessTexture >= 0) {
+      if (location.uMetallicRoughnessTexture >= 0) {
         auto textureObject = 0u;
         if (pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) {
           const auto &texture =
@@ -179,14 +170,14 @@ int ViewerApplication::run()
 
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, textureObject);
-        glUniform1i(uMetallicRoughnessTexture, 1);
+        glUniform1i(location.uMetallicRoughnessTexture, 1);
       }
-      if (uEmissiveFactor >= 0) {
-        glUniform3f(uEmissiveFactor, (float)material.emissiveFactor[0],
+      if (location.uEmissiveFactor >= 0) {
+        glUniform3f(location.uEmissiveFactor, (float)material.emissiveFactor[0],
             (float)material.emissiveFactor[1],
             (float)material.emissiveFactor[2]);
       }
-      if (uEmissiveTexture >= 0) {
+      if (location.uEmissiveTexture >= 0) {
         auto textureObject = 0u;
         if (material.emissiveTexture.index >= 0) {
           const auto &texture = model.textures[material.emissiveTexture.index];
@@ -197,13 +188,13 @@ int ViewerApplication::run()
 
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, textureObject);
-        glUniform1i(uEmissiveTexture, 2);
+        glUniform1i(location.uEmissiveTexture, 2);
       }
-      if (uOcclusionStrength >= 0) {
-        glUniform1f(
-            uOcclusionStrength, (float)material.occlusionTexture.strength);
+      if (location.uOcclusionStrength >= 0) {
+        glUniform1f(location.uOcclusionStrength,
+            (float)material.occlusionTexture.strength);
       }
-      if (uOcclusionTexture >= 0) {
+      if (location.uOcclusionTexture >= 0) {
         auto textureObject = whiteTexture;
         if (material.occlusionTexture.index >= 0) {
           const auto &texture = model.textures[material.occlusionTexture.index];
@@ -214,76 +205,83 @@ int ViewerApplication::run()
 
         glActiveTexture(GL_TEXTURE3);
         glBindTexture(GL_TEXTURE_2D, textureObject);
-        glUniform1i(uOcclusionTexture, 3);
+        glUniform1i(location.uOcclusionTexture, 3);
       }
     } else {
       // Apply default material
       // Defined here:
-      // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#reference-material
       // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#reference-pbrmetallicroughness3
-      if (uBaseColorFactor >= 0) {
-        glUniform4f(uBaseColorFactor, 1, 1, 1, 1);
+      if (location.uBaseColorFactor >= 0) {
+        glUniform4f(location.uBaseColorFactor, 1, 1, 1, 1);
       }
-      if (uBaseColorTexture >= 0) {
+      if (location.uBaseColorTexture >= 0) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, whiteTexture);
-        glUniform1i(uBaseColorTexture, 0);
+        glUniform1i(location.uBaseColorTexture, 0);
       }
-      if (uMetallicFactor >= 0) {
-        glUniform1f(uMetallicFactor, 1.f);
+      if (location.uMetallicFactor >= 0) {
+        glUniform1f(location.uMetallicFactor, 1.f);
       }
-      if (uRoughnessFactor >= 0) {
-        glUniform1f(uRoughnessFactor, 1.f);
+      if (location.uRoughnessFactor >= 0) {
+        glUniform1f(location.uRoughnessFactor, 1.f);
       }
-      if (uMetallicRoughnessTexture >= 0) {
+      if (location.uMetallicRoughnessTexture >= 0) {
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, 0);
-        glUniform1i(uMetallicRoughnessTexture, 1);
+        glUniform1i(location.uMetallicRoughnessTexture, 1);
       }
-      if (uEmissiveFactor >= 0) {
-        glUniform3f(uEmissiveFactor, 0.f, 0.f, 0.f);
+      if (location.uEmissiveFactor >= 0) {
+        glUniform3f(location.uEmissiveFactor, 0.f, 0.f, 0.f);
       }
-      if (uEmissiveTexture >= 0) {
+      if (location.uEmissiveTexture >= 0) {
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, 0);
-        glUniform1i(uEmissiveTexture, 2);
+        glUniform1i(location.uEmissiveTexture, 2);
       }
-      if (uOcclusionStrength >= 0) {
-        glUniform1f(uOcclusionStrength, 0.f);
+      if (location.uOcclusionStrength >= 0) {
+        glUniform1f(location.uOcclusionStrength, 0.f);
       }
-      if (uOcclusionTexture >= 0) {
+      if (location.uOcclusionTexture >= 0) {
         glActiveTexture(GL_TEXTURE3);
         glBindTexture(GL_TEXTURE_2D, 0);
-        glUniform1i(uOcclusionTexture, 3);
+        glUniform1i(location.uOcclusionTexture, 3);
       }
     }
   };
 
+  const auto drawLight = [&](const Camera &camera, const Locations &location) {
+    const auto viewMatrix = camera.getViewMatrix();
+
+    if (location.uLightDirection >= 0) {
+      if (lightFromCamera) {
+        glUniform3f(location.uLightDirection, 0, 0, 1);
+      } else {
+        const auto lightDirectionInViewSpace = glm::normalize(
+            glm::vec3(viewMatrix * glm::vec4(lightDirection, 0.)));
+        glUniform3f(location.uLightDirection, lightDirectionInViewSpace[0],
+            lightDirectionInViewSpace[1], lightDirectionInViewSpace[2]);
+      }
+    }
+
+    if (location.uLightIntensity >= 0) {
+      glUniform3f(location.uLightIntensity, lightIntensity[0],
+          lightIntensity[1], lightIntensity[2]);
+    }
+  };
+
   // Lambda function to draw the scene
-  const auto drawScene = [&](const Camera &camera) {
+  const auto drawScene = [&](const Camera &camera, const Locations &location,
+                             bool light = true) {
     glViewport(0, 0, m_nWindowWidth, m_nWindowHeight);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     const auto viewMatrix = camera.getViewMatrix();
 
-    if (uLightDirectionLocation >= 0) {
-      if (lightFromCamera) {
-        glUniform3f(uLightDirectionLocation, 0, 0, 1);
-      } else {
-        const auto lightDirectionInViewSpace = glm::normalize(
-            glm::vec3(viewMatrix * glm::vec4(lightDirection, 0.)));
-        glUniform3f(uLightDirectionLocation, lightDirectionInViewSpace[0],
-            lightDirectionInViewSpace[1], lightDirectionInViewSpace[2]);
-      }
-    }
+    if (light)
+      drawLight(camera, location);
 
-    if (uLightIntensity >= 0) {
-      glUniform3f(uLightIntensity, lightIntensity[0], lightIntensity[1],
-          lightIntensity[2]);
-    }
-
-    if (uApplyOcclusion >= 0) {
-      glUniform1i(uApplyOcclusion, applyOcclusion);
+    if (location.uApplyOcclusion >= 0) {
+      glUniform1i(location.uApplyOcclusion, applyOcclusion);
     }
 
     // The recursive function that should draw a node
@@ -306,11 +304,11 @@ int ViewerApplication::run()
             // https://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
             const auto normalMatrix = glm::transpose(glm::inverse(mvMatrix));
 
-            glUniformMatrix4fv(modelViewProjMatrixLocation, 1, GL_FALSE,
+            glUniformMatrix4fv(location.uModelViewProjMatrix, 1, GL_FALSE,
                 glm::value_ptr(mvpMatrix));
-            glUniformMatrix4fv(
-                modelViewMatrixLocation, 1, GL_FALSE, glm::value_ptr(mvMatrix));
-            glUniformMatrix4fv(normalMatrixLocation, 1, GL_FALSE,
+            glUniformMatrix4fv(location.uModelViewMatrix, 1, GL_FALSE,
+                glm::value_ptr(mvMatrix));
+            glUniformMatrix4fv(location.uNormalMatrix, 1, GL_FALSE,
                 glm::value_ptr(normalMatrix));
 
             const auto &mesh = model.meshes[node.mesh];
@@ -319,7 +317,7 @@ int ViewerApplication::run()
               const auto vao = vertexArrayObjects[vaoRange.begin + pIdx];
               const auto &primitive = mesh.primitives[pIdx];
 
-              bindMaterial(primitive.material);
+              bindMaterial(primitive.material, location);
 
               glBindVertexArray(vao);
               if (primitive.indices >= 0) {
@@ -360,7 +358,7 @@ int ViewerApplication::run()
     renderToImage(
         m_nWindowWidth, m_nWindowHeight, numComponents, pixels.data(), [&]() {
           const auto camera = cameraController->getCamera();
-          drawScene(camera);
+          // drawScene(camera, location);
         });
     // OpenGL has not the same convention for image axis than most image
     // formats, so we flip on the Y axis
@@ -381,7 +379,72 @@ int ViewerApplication::run()
     const auto seconds = glfwGetTime();
 
     const auto camera = cameraController->getCamera();
-    drawScene(camera);
+
+    // // forward render
+    // glslProgram.use();
+    // drawScene(camera, location);
+    // // ------------
+
+    // Deferred Render
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, gbuffer);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glslProgramdGeometry.use();
+    drawScene(camera, locationgbuffer, false);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+    // render G buffer content
+    /*
+      Attachment0 Position
+      Attachment1 Normal
+      Attachment2 Diffuse
+      Attachment3 Metallic
+      Attachment4 Emissive
+      Attachment5 Occlusion
+    */
+    // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // glBindFramebuffer(GL_READ_FRAMEBUFFER, gbuffer);
+
+    // glReadBuffer(GL_COLOR_ATTACHMENT4);
+    // glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0,
+    //     m_nWindowWidth, m_nWindowHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    // glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Do shading calculations on gbuffer and render the results
+    glslProgramdShading.use();
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glUniform1i(
+        glGetUniformLocation(glslProgramdShading.glId(), "gPosition"), 0);
+    glUniform1i(glGetUniformLocation(glslProgramdShading.glId(), "gNormal"), 1);
+    glUniform1i(
+        glGetUniformLocation(glslProgramdShading.glId(), "gDiffuse"), 2);
+    glUniform1i(
+        glGetUniformLocation(glslProgramdShading.glId(), "gMetallic"), 3);
+    glUniform1i(
+        glGetUniformLocation(glslProgramdShading.glId(), "gEmissive"), 4);
+    glUniform1i(
+        glGetUniformLocation(glslProgramdShading.glId(), "gOcclusion"), 5);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gPosition);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, gNormal);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, gDiffuse);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, gMetallic);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, gEmissive);
+    glActiveTexture(GL_TEXTURE5);
+    glBindTexture(GL_TEXTURE_2D, gOcclusion);
+    bindMaterial(-1, locationDShading);
+    drawLight(camera, locationDShading);
+    renderQuad(); // render the scene on the screen
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, gbuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0,
+        m_nWindowWidth, m_nWindowHeight, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // GUI code:
     imguiNewFrame();
@@ -719,4 +782,203 @@ ViewerApplication::ViewerApplication(const fs::path &appPath, uint32_t width,
   glfwSetKeyCallback(m_GLFWHandle.window(), keyCallback);
 
   printGLVersion();
+}
+
+void ViewerApplication::loadLocations(GLuint ID, Locations &locations)
+{
+  locations.uModelViewProjMatrix =
+      glGetUniformLocation(ID, "uModelViewProjMatrix");
+  locations.uModelViewMatrix = glGetUniformLocation(ID, "uModelViewMatrix");
+  locations.uNormalMatrix = glGetUniformLocation(ID, "uNormalMatrix");
+
+  locations.uLightDirection = glGetUniformLocation(ID, "uLightDirection");
+  locations.uLightIntensity = glGetUniformLocation(ID, "uLightIntensity");
+
+  locations.uBaseColorTexture = glGetUniformLocation(ID, "uBaseColorTexture");
+  locations.uBaseColorFactor = glGetUniformLocation(ID, "uBaseColorFactor");
+
+  locations.uMetallicRoughnessTexture =
+      glGetUniformLocation(ID, "uMetallicRoughnessTexture");
+  locations.uMetallicFactor = glGetUniformLocation(ID, "uMetallicFactor");
+  locations.uRoughnessFactor = glGetUniformLocation(ID, "uRoughnessFactor");
+
+  locations.uEmissiveTexture = glGetUniformLocation(ID, "uEmissiveTexture");
+  locations.uEmissiveFactor = glGetUniformLocation(ID, "uEmissiveFactor");
+
+  locations.uOcclusionTexture = glGetUniformLocation(ID, "uOcclusionTexture");
+  locations.uOcclusionStrength = glGetUniformLocation(ID, "uOcclusionStrength");
+  locations.uApplyOcclusion = glGetUniformLocation(ID, "uApplyOcclusion");
+}
+
+int ViewerApplication::createGBuffer()
+{
+  glGenFramebuffers(1, &gbuffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, gbuffer);
+
+  // position color buffer
+  glGenTextures(1, &gPosition);
+  glBindTexture(GL_TEXTURE_2D, gPosition);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, m_nWindowWidth, m_nWindowHeight, 0,
+      GL_RGBA, GL_FLOAT, NULL);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glFramebufferTexture2D(
+      GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gPosition, 0);
+
+  // normal color buffer
+  glGenTextures(1, &gNormal);
+  glBindTexture(GL_TEXTURE_2D, gNormal);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, m_nWindowWidth, m_nWindowHeight, 0,
+      GL_RGBA, GL_FLOAT, NULL);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glFramebufferTexture2D(
+      GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, gNormal, 0);
+
+  // color diffuse texture
+  glGenTextures(1, &gDiffuse);
+  glBindTexture(GL_TEXTURE_2D, gDiffuse);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, m_nWindowWidth, m_nWindowHeight, 0,
+      GL_RGBA, GL_FLOAT, NULL);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glFramebufferTexture2D(
+      GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, gDiffuse, 0);
+
+  glGenTextures(1, &gMetallic);
+  glBindTexture(GL_TEXTURE_2D, gMetallic);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, m_nWindowWidth, m_nWindowHeight, 0,
+      GL_RGBA, GL_FLOAT, NULL);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glFramebufferTexture2D(
+      GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, gMetallic, 0);
+
+  glGenTextures(1, &gEmissive);
+  glBindTexture(GL_TEXTURE_2D, gEmissive);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, m_nWindowWidth, m_nWindowHeight, 0,
+      GL_RGBA, GL_FLOAT, NULL);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glFramebufferTexture2D(
+      GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT4, GL_TEXTURE_2D, gEmissive, 0);
+
+  glGenTextures(1, &gOcclusion);
+  glBindTexture(GL_TEXTURE_2D, gOcclusion);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, m_nWindowWidth, m_nWindowHeight, 0,
+      GL_RGBA, GL_FLOAT, NULL);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glFramebufferTexture2D(
+      GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT5, GL_TEXTURE_2D, gOcclusion, 0);
+
+  // // Create a texture for the 5 factors
+  // glGenTextures(1, &gFactor);
+  // glBindTexture(GL_TEXTURE_2D, gFactor);
+  // float factors[] = {&uBaseColorFactor[0], uBaseColorFactor, 1, 1};
+  // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_FLOAT, white);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_REPEAT);
+  // glBindTexture(GL_TEXTURE_2D, 0);
+
+  // tell OpenGL which color attachments we'll use (of this framebuffer) for
+  // rendering
+  unsigned int attachments[6] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
+      GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3, GL_COLOR_ATTACHMENT4,
+      GL_COLOR_ATTACHMENT5};
+  glDrawBuffers(6, attachments);
+
+  // create and attach depth buffer (renderbuffer)
+  unsigned int rboDepth;
+  glGenRenderbuffers(1, &rboDepth);
+  glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
+  glRenderbufferStorage(
+      GL_RENDERBUFFER, GL_DEPTH_COMPONENT, m_nWindowWidth, m_nWindowHeight);
+  glFramebufferRenderbuffer(
+      GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboDepth);
+
+  // finally check if framebuffer is complete
+  if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    std::cout << "Framebuffer not complete!" << std::endl;
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void ViewerApplication::RenderGbuffer()
+{
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, gbuffer);
+
+  GLsizei HalfWidth = (GLsizei)(m_nWindowWidth / 2.0f);
+  GLsizei HalfHeight = (GLsizei)(m_nWindowHeight / 2.0f);
+
+  glReadBuffer(GL_COLOR_ATTACHMENT0);
+
+  glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0, m_nWindowWidth,
+      m_nWindowHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0, HalfWidth,
+      HalfHeight, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+  glReadBuffer(GL_COLOR_ATTACHMENT1);
+  glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, HalfHeight,
+      HalfWidth, m_nWindowHeight, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+  glReadBuffer(GL_COLOR_ATTACHMENT2);
+
+  glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, HalfWidth,
+      HalfHeight, m_nWindowWidth, m_nWindowHeight, GL_COLOR_BUFFER_BIT,
+      GL_LINEAR);
+
+  glReadBuffer(GL_COLOR_ATTACHMENT3);
+  glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, HalfWidth, 0,
+      m_nWindowWidth, HalfHeight, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+}
+
+void ViewerApplication::renderQuad()
+{
+  if (quadVAO == 0) {
+    float quadVertices[] = {
+        // positions        // texture Coords
+        -1.0f,
+        1.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        -1.0f,
+        -1.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        1.0f,
+        0.0f,
+        1.0f,
+        1.0f,
+        1.0f,
+        -1.0f,
+        0.0f,
+        1.0f,
+        0.0f,
+    };
+    // setup plane VAO
+    glGenVertexArrays(1, &quadVAO);
+    glGenBuffers(1, &quadVBO);
+    glBindVertexArray(quadVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+    glBufferData(
+        GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(
+        0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
+        (void *)(3 * sizeof(float)));
+  }
+  glBindVertexArray(quadVAO);
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+  glBindVertexArray(0);
 }
