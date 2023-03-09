@@ -421,7 +421,6 @@ int ViewerApplication::run()
         glBindTexture(GL_TEXTURE_2D, gEmissive);
         glActiveTexture(GL_TEXTURE5);
         glBindTexture(GL_TEXTURE_2D, gOcclusion);
-        bindMaterial(-1, locationDShading);
         drawLight(camera, locationDShading);
         renderQuad(); // render the scene on the screen
 

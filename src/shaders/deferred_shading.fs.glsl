@@ -27,12 +27,6 @@ vec3 LINEARtoSRGB(vec3 color) {
     return pow(color, vec3(INV_GAMMA));
 }
 
-// sRGB to linear approximation
-// see http://chilliant.blogspot.com/2012/08/srgb-approximations-for-hlsl.html
-vec4 SRGBtoLINEAR(vec4 srgbIn) {
-    return vec4(pow(srgbIn.xyz, vec3(GAMMA)), srgbIn.w);
-}
-
 void main() {
     vec3 vViewSpaceNormal = texture(gNormal, vTexCoords).rgb;
     vec3 vViewSpacePosition = texture(gPosition, vTexCoords).rgb;
@@ -83,7 +77,8 @@ void main() {
     float ao;
     if(1 == uApplyOcclusion) {
         ao = texture2D(gOcclusion, vTexCoords).r;
-        color = mix(color, color * ao, uOcclusionStrength);
+        float occlusionStrength = texture2D(gOcclusion, vTexCoords).w;
+        color = mix(color, color * ao, occlusionStrength);
     }
 
     fColor = LINEARtoSRGB(color);

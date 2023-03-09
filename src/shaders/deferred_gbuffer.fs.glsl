@@ -49,5 +49,6 @@ void main() {
     gEmissive = SRGBtoLINEAR(texture2D(uEmissiveTexture, vTexCoords)).rgb *
         uEmissiveFactor;
 
-    gOcclusion = texture(uOcclusionTexture, vTexCoords) * uOcclusionStrength;
+    gOcclusion.xyz = texture(uOcclusionTexture, vTexCoords).xyz;
+    gOcclusion.w = uOcclusionStrength; // maybe we need to optimize this
 }
