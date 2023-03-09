@@ -118,6 +118,5 @@ void main() {
         color = mix(color, color * ao, uOcclusionStrength);
     }
 
-    fColor = vec3(baseColorFromTexture);
-
+    fColor = LINEARtoSRGB(color);
 }

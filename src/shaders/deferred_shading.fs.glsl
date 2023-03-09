@@ -8,10 +8,6 @@ uniform int uApplyOcclusion;
 uniform vec3 uLightDirection;
 uniform vec3 uLightIntensity;
 
-uniform vec4 uBaseColorFactor;
-uniform float uMetallicFactor;
-uniform float uRoughnessFactor;
-uniform vec3 uEmissiveFactor;
 uniform float uOcclusionStrength;
 
 uniform sampler2D gPosition;
@@ -45,16 +41,9 @@ void main() {
     vec3 L = uLightDirection;
     vec3 H = normalize(L + V);
 
-    vec4 baseColorFromTexture = SRGBtoLINEAR(texture(gDiffuse, vTexCoords)); // gamma correction
-    vec4 metallicRougnessFromTexture = texture(gMetallic, vTexCoords);
-
-    vec4 baseColor = 1.0 * baseColorFromTexture;
-    vec3 metallic = vec3(uMetallicFactor * metallicRougnessFromTexture.b);
-    float roughness = uRoughnessFactor * metallicRougnessFromTexture.g;
-
-    // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#pbrmetallicroughnessmetallicroughnesstexture
-    // "The metallic-roughness texture.The metalness values are sampled from the B
-    // channel.The roughness values are sampled from the G channel."
+    vec4 baseColor = texture(gDiffuse, vTexCoords);
+    vec3 metallic = texture(gMetallic, vTexCoords).xyz;
+    float roughness = texture(gMetallic, vTexCoords).w;
 
     vec3 dielectricSpecular = vec3(0.04);
     vec3 black = vec3(0.);
@@ -86,14 +75,14 @@ void main() {
     vec3 diffuse = c_diff * M_1_PI;
 
     vec3 f_diffuse = (1. - F) * diffuse;
-    vec3 emissive = SRGBtoLINEAR(texture2D(gEmissive, vTexCoords)).rgb *
-        uEmissiveFactor;
+    vec3 emissive = texture(gEmissive, vTexCoords).xyz;
 
     vec3 color = (f_diffuse + f_specular) * uLightIntensity * NdotL;
     color += emissive;
 
+    float ao;
     if(1 == uApplyOcclusion) {
-        float ao = texture2D(gOcclusion, vTexCoords).r;
+        ao = texture2D(gOcclusion, vTexCoords).r;
         color = mix(color, color * ao, uOcclusionStrength);
     }
 

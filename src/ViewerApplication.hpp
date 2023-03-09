@@ -11,6 +11,7 @@ struct Locations
 {
   int uModelViewProjMatrix;
   int uModelViewMatrix;
+  int uModelMatrix;
   int uNormalMatrix;
   int uLightDirection;
   int uLightIntensity;
@@ -98,4 +99,13 @@ private:
   */
   unsigned int quadVAO = 0;
   unsigned int quadVBO;
+
+  // texture for gbuffer
+  unsigned int gbuffer;
+  unsigned int gPosition;
+  unsigned int gNormal;
+  unsigned int gDiffuse;
+  unsigned int gMetallic;
+  unsigned int gEmissive;
+  unsigned int gOcclusion;
 };

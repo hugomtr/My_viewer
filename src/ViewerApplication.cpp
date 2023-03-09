@@ -15,15 +15,6 @@
 #include <stb_image_write.h>
 #include <tiny_gltf.h>
 
-unsigned int gbuffer;
-unsigned int gPosition;
-unsigned int gNormal;
-unsigned int gDiffuse;
-unsigned int gMetallic;
-unsigned int gEmissive;
-unsigned int gOcclusion;
-unsigned int gFactor;
-
 void keyCallback(
     GLFWwindow *window, int key, int scancode, int action, int mods)
 {
@@ -34,19 +25,10 @@ void keyCallback(
 
 int ViewerApplication::run()
 {
-  // // Loader shaders
-  // // Forward rendering
-  // const auto glslProgram = compileProgram({m_ShadersRootPath /
-  // m_vertexShader,
-  //     m_ShadersRootPath / m_fragmentShader});
 
-  // Locations location;
-  // loadLocations(glslProgram.glId(), location);
+  bool deferred_rendering = false;
+  bool render_gbuffer_content = false;
 
-  // // -------------------
-
-  // Deferred Rendering
-  // 2 Shaders for deferred rendering method
   const auto glslProgramdGeometry =
       compileProgram({m_ShadersRootPath / m_vertexShaderGBuffer,
           m_ShadersRootPath / m_fragmentShaderGBuffer});
@@ -61,7 +43,11 @@ int ViewerApplication::run()
   Locations locationDShading;
   loadLocations(glslProgramdShading.glId(), locationDShading);
 
-  // --------------------
+  const auto glslProgram = compileProgram({m_ShadersRootPath / m_vertexShader,
+      m_ShadersRootPath / m_fragmentShader});
+
+  Locations location;
+  loadLocations(glslProgram.glId(), location);
 
   tinygltf::Model model;
   if (!loadGltfFile(model)) {
@@ -267,6 +253,10 @@ int ViewerApplication::run()
       glUniform3f(location.uLightIntensity, lightIntensity[0],
           lightIntensity[1], lightIntensity[2]);
     }
+
+    if (location.uApplyOcclusion >= 0) {
+      glUniform1i(location.uApplyOcclusion, applyOcclusion);
+    }
   };
 
   // Lambda function to draw the scene
@@ -280,17 +270,12 @@ int ViewerApplication::run()
     if (light)
       drawLight(camera, location);
 
-    if (location.uApplyOcclusion >= 0) {
-      glUniform1i(location.uApplyOcclusion, applyOcclusion);
-    }
-
     // The recursive function that should draw a node
     // We use a std::function because a simple lambda cannot be recursive
     const std::function<void(int, const glm::mat4 &)> drawNode =
         [&](int nodeIdx, const glm::mat4 &parentMatrix) {
           const auto &node = model.nodes[nodeIdx];
-          const glm::mat4 modelMatrix =
-              getLocalToWorldMatrix(node, parentMatrix);
+          const auto modelMatrix = getLocalToWorldMatrix(node, parentMatrix);
 
           // If the node references a mesh (a node can also reference a
           // camera, or a light)
@@ -304,12 +289,18 @@ int ViewerApplication::run()
             // https://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
             const auto normalMatrix = glm::transpose(glm::inverse(mvMatrix));
 
-            glUniformMatrix4fv(location.uModelViewProjMatrix, 1, GL_FALSE,
-                glm::value_ptr(mvpMatrix));
-            glUniformMatrix4fv(location.uModelViewMatrix, 1, GL_FALSE,
-                glm::value_ptr(mvMatrix));
-            glUniformMatrix4fv(location.uNormalMatrix, 1, GL_FALSE,
-                glm::value_ptr(normalMatrix));
+            if (location.uModelMatrix >= 0)
+              glUniformMatrix4fv(location.uModelMatrix, 1, GL_FALSE,
+                  glm::value_ptr(modelMatrix));
+            if (location.uModelViewProjMatrix >= 0)
+              glUniformMatrix4fv(location.uModelViewProjMatrix, 1, GL_FALSE,
+                  glm::value_ptr(mvpMatrix));
+            if (location.uModelViewMatrix >= 0)
+              glUniformMatrix4fv(location.uModelViewMatrix, 1, GL_FALSE,
+                  glm::value_ptr(mvMatrix));
+            if (location.uNormalMatrix >= 0)
+              glUniformMatrix4fv(location.uNormalMatrix, 1, GL_FALSE,
+                  glm::value_ptr(normalMatrix));
 
             const auto &mesh = model.meshes[node.mesh];
             const auto &vaoRange = meshToVertexArrays[node.mesh];
@@ -380,71 +371,71 @@ int ViewerApplication::run()
 
     const auto camera = cameraController->getCamera();
 
-    // // forward render
-    // glslProgram.use();
-    // drawScene(camera, location);
-    // // ------------
+    if (deferred_rendering) {
+      // Geometry pass
+      glBindFramebuffer(GL_DRAW_FRAMEBUFFER, gbuffer);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      glslProgramdGeometry.use();
+      drawScene(camera, locationgbuffer, false);
+      glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
-    // Deferred Render
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, gbuffer);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glslProgramdGeometry.use();
-    drawScene(camera, locationgbuffer, false);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+      //
+      if (render_gbuffer_content) {
+        // render G buffer content
+        //  TO DO call render g buffer function because now the code render only
+        //  one texture
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // render G buffer content
-    /*
-      Attachment0 Position
-      Attachment1 Normal
-      Attachment2 Diffuse
-      Attachment3 Metallic
-      Attachment4 Emissive
-      Attachment5 Occlusion
-    */
-    // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, gbuffer);
 
-    // glBindFramebuffer(GL_READ_FRAMEBUFFER, gbuffer);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0,
+            m_nWindowWidth, m_nWindowHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      } else {
 
-    // glReadBuffer(GL_COLOR_ATTACHMENT4);
-    // glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0,
-    //     m_nWindowWidth, m_nWindowHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    // glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        // Do shading calculations on gbuffer and render the results
+        glslProgramdShading.use();
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glUniform1i(
+            glGetUniformLocation(glslProgramdShading.glId(), "gPosition"), 0);
+        glUniform1i(
+            glGetUniformLocation(glslProgramdShading.glId(), "gNormal"), 1);
+        glUniform1i(
+            glGetUniformLocation(glslProgramdShading.glId(), "gDiffuse"), 2);
+        glUniform1i(
+            glGetUniformLocation(glslProgramdShading.glId(), "gMetallic"), 3);
+        glUniform1i(
+            glGetUniformLocation(glslProgramdShading.glId(), "gEmissive"), 4);
+        glUniform1i(
+            glGetUniformLocation(glslProgramdShading.glId(), "gOcclusion"), 5);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, gPosition);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, gNormal);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, gDiffuse);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, gMetallic);
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_2D, gEmissive);
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_2D, gOcclusion);
+        bindMaterial(-1, locationDShading);
+        drawLight(camera, locationDShading);
+        renderQuad(); // render the scene on the screen
 
-    // Do shading calculations on gbuffer and render the results
-    glslProgramdShading.use();
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glUniform1i(
-        glGetUniformLocation(glslProgramdShading.glId(), "gPosition"), 0);
-    glUniform1i(glGetUniformLocation(glslProgramdShading.glId(), "gNormal"), 1);
-    glUniform1i(
-        glGetUniformLocation(glslProgramdShading.glId(), "gDiffuse"), 2);
-    glUniform1i(
-        glGetUniformLocation(glslProgramdShading.glId(), "gMetallic"), 3);
-    glUniform1i(
-        glGetUniformLocation(glslProgramdShading.glId(), "gEmissive"), 4);
-    glUniform1i(
-        glGetUniformLocation(glslProgramdShading.glId(), "gOcclusion"), 5);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, gPosition);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, gNormal);
-    glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, gDiffuse);
-    glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, gMetallic);
-    glActiveTexture(GL_TEXTURE4);
-    glBindTexture(GL_TEXTURE_2D, gEmissive);
-    glActiveTexture(GL_TEXTURE5);
-    glBindTexture(GL_TEXTURE_2D, gOcclusion);
-    bindMaterial(-1, locationDShading);
-    drawLight(camera, locationDShading);
-    renderQuad(); // render the scene on the screen
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, gbuffer);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0,
-        m_nWindowWidth, m_nWindowHeight, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, gbuffer);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0,
+            m_nWindowWidth, m_nWindowHeight, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      }
+    } else {
+      // forward render
+      glslProgram.use();
+      drawScene(camera, location);
+    }
 
     // GUI code:
     imguiNewFrame();
@@ -516,6 +507,8 @@ int ViewerApplication::run()
 
         ImGui::Checkbox("light from camera", &lightFromCamera);
         ImGui::Checkbox("apply occlusion", &applyOcclusion);
+        ImGui::Checkbox("Deferred Rendering", &deferred_rendering);
+        ImGui::Checkbox("Render gbuffer content", &render_gbuffer_content);
       }
       ImGui::End();
     }
@@ -790,6 +783,7 @@ void ViewerApplication::loadLocations(GLuint ID, Locations &locations)
       glGetUniformLocation(ID, "uModelViewProjMatrix");
   locations.uModelViewMatrix = glGetUniformLocation(ID, "uModelViewMatrix");
   locations.uNormalMatrix = glGetUniformLocation(ID, "uNormalMatrix");
+  locations.uModelMatrix = glGetUniformLocation(ID, "uModelMatrix");
 
   locations.uLightDirection = glGetUniformLocation(ID, "uLightDirection");
   locations.uLightIntensity = glGetUniformLocation(ID, "uLightIntensity");
