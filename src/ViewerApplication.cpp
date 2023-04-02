@@ -32,6 +32,7 @@ int ViewerApplication::run()
   bool deferred_rendering = false;
   bool render_gbuffer_content = false;
   bool render_with_ssao = false;
+  int render_gbuffer_id = 0;
 
   const auto glslProgram = compileProgram({m_ShadersRootPath / m_vertexShader,
       m_ShadersRootPath / m_fragmentShader});
@@ -389,7 +390,6 @@ int ViewerApplication::run()
     const auto seconds = glfwGetTime();
 
     const auto camera = cameraController->getCamera();
-    std::cout << render_with_ssao << std::endl;
     if (deferred_rendering) {
       // Geometry pass
       glBindFramebuffer(GL_DRAW_FRAMEBUFFER, gbuffer);
@@ -407,102 +407,105 @@ int ViewerApplication::run()
 
         glBindFramebuffer(GL_READ_FRAMEBUFFER, gbuffer);
 
-        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glReadBuffer(GL_COLOR_ATTACHMENT0 + render_gbuffer_id - 1);
         glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0,
             m_nWindowWidth, m_nWindowHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      }
+      } else {
 
-      //
-      // Do shading calculations on gbuffer and render the results
-      if (render_with_ssao) {
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
-        glslProgramdSsao.use();
-        // Send kernel + rotation
-        for (unsigned int i = 0; i < 64; ++i) {
-          auto name = "samples[" + std::to_string(i) + "]";
-          glUniform3fv(
-              glGetUniformLocation(glslProgramdSsao.glId(), name.c_str()), 1,
-              &ssaoKernel[i][0]);
+        //
+        // Do shading calculations on gbuffer and render the results
+        if (render_with_ssao) {
+          glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+          glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
+          glslProgramdSsao.use();
+          // Send kernel + rotation
+          for (unsigned int i = 0; i < 64; ++i) {
+            auto name = "samples[" + std::to_string(i) + "]";
+            glUniform3fv(
+                glGetUniformLocation(glslProgramdSsao.glId(), name.c_str()), 1,
+                &ssaoKernel[i][0]);
+          }
+          glUniformMatrix4fv(locationSsao.uModelViewProjMatrix, 1, GL_FALSE,
+              glm::value_ptr(projMatrix));
+          glUniform1f(
+              glGetUniformLocation(glslProgramdSsao.glId(), "m_nWindowWidth"),
+              (float)m_nWindowWidth);
+          glUniform1f(
+              glGetUniformLocation(glslProgramdSsao.glId(), "m_nWindowHeight"),
+              (float)m_nWindowHeight);
+          glUniform1i(
+              glGetUniformLocation(glslProgramdSsao.glId(), "gPosition"), 0);
+          glUniform1i(
+              glGetUniformLocation(glslProgramdSsao.glId(), "gNormal"), 1);
+          glUniform1i(
+              glGetUniformLocation(glslProgramdSsao.glId(), "texNoise"), 2);
+          glActiveTexture(GL_TEXTURE0);
+          glBindTexture(GL_TEXTURE_2D, gPosition);
+          glActiveTexture(GL_TEXTURE1);
+          glBindTexture(GL_TEXTURE_2D, gNormal);
+          glActiveTexture(GL_TEXTURE2);
+          glBindTexture(GL_TEXTURE_2D, noiseTexture);
+          renderQuad();
+          glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+          // 3. blur SSAO texture to remove noise
+          glBindFramebuffer(GL_FRAMEBUFFER, ssaoBlurFBO);
+          glClear(GL_COLOR_BUFFER_BIT);
+          glslProgramdSsaoBlur.use();
+          glUniform1i(
+              glGetUniformLocation(glslProgramdSsaoBlur.glId(), "ssaoInput"),
+              0);
+          glActiveTexture(GL_TEXTURE0);
+          glBindTexture(GL_TEXTURE_2D, ssaoColorBuffer); // <- Error Here
+          renderQuad();
+          glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+          glslProgramdShading.use();
+          glUniform1i(glGetUniformLocation(
+                          glslProgramdShading.glId(), "ssaoColorBufferBlur"),
+              6);
+          glActiveTexture(GL_TEXTURE6);
+          glBindTexture(GL_TEXTURE_2D, ssaoColorBufferBlur);
         }
-        glUniformMatrix4fv(locationSsao.uModelViewProjMatrix, 1, GL_FALSE,
-            glm::value_ptr(projMatrix));
-        glUniform1f(
-            glGetUniformLocation(glslProgramdSsao.glId(), "m_nWindowWidth"),
-            (float)m_nWindowWidth);
-        glUniform1f(
-            glGetUniformLocation(glslProgramdSsao.glId(), "m_nWindowHeight"),
-            (float)m_nWindowHeight);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glslProgramdShading.use();
         glUniform1i(
-            glGetUniformLocation(glslProgramdSsao.glId(), "gPosition"), 0);
+            glGetUniformLocation(glslProgramdShading.glId(), "gPosition"), 0);
         glUniform1i(
-            glGetUniformLocation(glslProgramdSsao.glId(), "gNormal"), 1);
+            glGetUniformLocation(glslProgramdShading.glId(), "gNormal"), 1);
         glUniform1i(
-            glGetUniformLocation(glslProgramdSsao.glId(), "texNoise"), 2);
+            glGetUniformLocation(glslProgramdShading.glId(), "gDiffuse"), 2);
+        glUniform1i(
+            glGetUniformLocation(glslProgramdShading.glId(), "gMetallic"), 3);
+        glUniform1i(
+            glGetUniformLocation(glslProgramdShading.glId(), "gEmissive"), 4);
+        glUniform1i(
+            glGetUniformLocation(glslProgramdShading.glId(), "gOcclusion"), 5);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, gPosition);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, gNormal);
         glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, noiseTexture);
-        renderQuad();
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-        // 3. blur SSAO texture to remove noise
-        glBindFramebuffer(GL_FRAMEBUFFER, ssaoBlurFBO);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glslProgramdSsaoBlur.use();
+        glBindTexture(GL_TEXTURE_2D, gDiffuse);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, gMetallic);
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_2D, gEmissive);
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_2D, gOcclusion);
         glUniform1i(
-            glGetUniformLocation(glslProgramdSsaoBlur.glId(), "ssaoInput"), 0);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, ssaoColorBuffer); // <- Error Here
-        renderQuad();
+            glGetUniformLocation(glslProgramdShading.glId(), "with_ssao"),
+            (int)render_with_ssao);
+        drawLight(camera, locationDShading);
+        renderQuad(); // render the scene on the screen
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, gbuffer);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0,
+            m_nWindowWidth, m_nWindowHeight, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-        glslProgramdShading.use();
-        glUniform1i(glGetUniformLocation(
-                        glslProgramdShading.glId(), "ssaoColorBufferBlur"),
-            6);
-        glActiveTexture(GL_TEXTURE6);
-        glBindTexture(GL_TEXTURE_2D, ssaoColorBufferBlur);
       }
-      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-      glslProgramdShading.use();
-      glUniform1i(
-          glGetUniformLocation(glslProgramdShading.glId(), "gPosition"), 0);
-      glUniform1i(
-          glGetUniformLocation(glslProgramdShading.glId(), "gNormal"), 1);
-      glUniform1i(
-          glGetUniformLocation(glslProgramdShading.glId(), "gDiffuse"), 2);
-      glUniform1i(
-          glGetUniformLocation(glslProgramdShading.glId(), "gMetallic"), 3);
-      glUniform1i(
-          glGetUniformLocation(glslProgramdShading.glId(), "gEmissive"), 4);
-      glUniform1i(
-          glGetUniformLocation(glslProgramdShading.glId(), "gOcclusion"), 5);
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, gPosition);
-      glActiveTexture(GL_TEXTURE1);
-      glBindTexture(GL_TEXTURE_2D, gNormal);
-      glActiveTexture(GL_TEXTURE2);
-      glBindTexture(GL_TEXTURE_2D, gDiffuse);
-      glActiveTexture(GL_TEXTURE3);
-      glBindTexture(GL_TEXTURE_2D, gMetallic);
-      glActiveTexture(GL_TEXTURE4);
-      glBindTexture(GL_TEXTURE_2D, gEmissive);
-      glActiveTexture(GL_TEXTURE5);
-      glBindTexture(GL_TEXTURE_2D, gOcclusion);
-      glUniform1i(glGetUniformLocation(glslProgramdShading.glId(), "with_ssao"),
-          (int)render_with_ssao);
-      drawLight(camera, locationDShading);
-      renderQuad(); // render the scene on the screen
-
-      glBindFramebuffer(GL_READ_FRAMEBUFFER, gbuffer);
-      glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-      glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight, 0, 0,
-          m_nWindowWidth, m_nWindowHeight, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-      glBindFramebuffer(GL_FRAMEBUFFER, 0);
     } else {
       // forward render
       glslProgram.use();
@@ -581,7 +584,20 @@ int ViewerApplication::run()
         ImGui::Checkbox("apply occlusion", &applyOcclusion);
         ImGui::Checkbox("Deferred Rendering", &deferred_rendering);
         ImGui::Checkbox("with SSAO", &render_with_ssao);
-        ImGui::Checkbox("Render gbuffer content", &render_gbuffer_content);
+
+        if (ImGui::CollapsingHeader(
+                "Render G Buffer", ImGuiTreeNodeFlags_DefaultOpen)) {
+
+          ImGui::RadioButton("No rendering G buffer", &render_gbuffer_id, 0);
+          ImGui::RadioButton("Render position", &render_gbuffer_id, 1);
+          ImGui::RadioButton("Render Normal", &render_gbuffer_id, 2);
+          ImGui::RadioButton("Render Diffuse", &render_gbuffer_id, 3);
+          ImGui::RadioButton("Render Metallic", &render_gbuffer_id, 4);
+          ImGui::RadioButton("Render Emissive", &render_gbuffer_id, 5);
+          ImGui::RadioButton("Render Occlusion", &render_gbuffer_id, 6);
+
+          render_gbuffer_content = (render_gbuffer_id > 0) ? true : false;
+        }
       }
       ImGui::End();
     }
