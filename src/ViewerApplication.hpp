@@ -5,6 +5,7 @@
 #include "utils/filesystem.hpp"
 #include "utils/shaders.hpp"
 
+#include <random>
 #include <tiny_gltf.h>
 
 struct Locations
@@ -74,6 +75,9 @@ private:
   std::string m_fragmentShaderGBuffer = "deferred_gbuffer.fs.glsl";
   std::string m_vertexShaderDShading = "deferred_shading.vs.glsl";
   std::string m_fragmentShaderDShading = "deferred_shading.fs.glsl";
+  std::string m_vertexShaderSsao = "ssao.vs.glsl";
+  std::string m_fragmentShaderSsao = "ssao.fs.glsl";
+  std::string m_fragmentShaderSsaoBlur = "ssao_blur.fs.glsl";
 
   bool m_hasUserCamera = false;
   Camera m_userCamera;
@@ -108,4 +112,15 @@ private:
   unsigned int gMetallic;
   unsigned int gEmissive;
   unsigned int gOcclusion;
+
+  // ssao
+  std::vector<glm::vec3> ssaoKernel;
+  std::vector<glm::vec3> ssaoNoise;
+  unsigned int noiseTexture;
+
+  unsigned int ssaoFBO, ssaoBlurFBO;
+  unsigned int ssaoColorBuffer, ssaoColorBufferBlur;
+
+  float lerp(float a, float b, float f) { return a + f * (b - a); };
+  void ssaoPrepare();
 };

@@ -4,6 +4,7 @@ out vec3 fColor;
 in vec2 vTexCoords;
 
 uniform int uApplyOcclusion;
+uniform int with_ssao = 0;
 
 uniform vec3 uLightDirection;
 uniform vec3 uLightIntensity;
@@ -16,6 +17,7 @@ uniform sampler2D gDiffuse;
 uniform sampler2D gMetallic;
 uniform sampler2D gEmissive;
 uniform sampler2D gOcclusion;
+uniform sampler2D ssaoColorBufferBlur;
 
 // Constants
 const float GAMMA = 2.2;
@@ -73,6 +75,13 @@ void main() {
 
     vec3 color = (f_diffuse + f_specular) * uLightIntensity * NdotL;
     color += emissive;
+
+    // ssao here
+    if(with_ssao != 0) {
+        float AmbientOcclusion = texture(ssaoColorBufferBlur, vTexCoords).r;
+        vec3 ambient = vec3(0.1 * diffuse * AmbientOcclusion);
+        color += ambient;
+    }
 
     float ao;
     if(1 == uApplyOcclusion) {
