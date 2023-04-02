@@ -582,6 +582,7 @@ int ViewerApplication::run()
 
         ImGui::Checkbox("light from camera", &lightFromCamera);
         ImGui::Checkbox("apply occlusion", &applyOcclusion);
+
         ImGui::Checkbox("Deferred Rendering", &deferred_rendering);
         ImGui::Checkbox("with SSAO", &render_with_ssao);
 
